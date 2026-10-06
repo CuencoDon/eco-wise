@@ -65,10 +65,8 @@ export default function UserDashboard() {
   const [recentActivity, setRecentActivity] = useState<any[]>([])
   const [topCollectors, setTopCollectors] = useState<any[]>([])
   
-  // Materials from admin
   const [materials, setMaterials] = useState<any[]>([])
   
-  // Scanner States
   const [scanning, setScanning] = useState(false)
   const [scannerResult, setScannerResult] = useState<{
     wasteType: string
@@ -80,8 +78,8 @@ export default function UserDashboard() {
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
   const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('environment')
+  const [showMobileCamera, setShowMobileCamera] = useState(false)
   
-  // Verification States
   const [showVerification, setShowVerification] = useState(false)
   const [verificationImage, setVerificationImage] = useState<string | null>(null)
   const [verificationLoading, setVerificationLoading] = useState(false)
@@ -95,7 +93,7 @@ export default function UserDashboard() {
   const verificationFileInputRef = useRef<HTMLInputElement>(null)
 
   // ================================================================
-  // MOBILE DETECTION — user agent + viewport + resize/orientation
+  // MOBILE DETECTION
   // ================================================================
   useEffect(() => {
     const checkMobile = () => {
@@ -114,7 +112,7 @@ export default function UserDashboard() {
   }, [])
 
   // ================================================================
-  // CAMERA CLEANUP ON UNMOUNT — stop tracks when leaving page
+  // CAMERA CLEANUP ON UNMOUNT
   // ================================================================
   useEffect(() => {
     return () => {
@@ -126,7 +124,7 @@ export default function UserDashboard() {
   }, [])
 
   // ================================================================
-  // FETCH MATERIALS — refetches on mount, every 30s, and on tab focus
+  // FETCH MATERIALS
   // ================================================================
   useEffect(() => {
     let isMounted = true
@@ -151,15 +149,12 @@ export default function UserDashboard() {
         } else if (data) {
           setMaterials(data)
         }
-      } catch (err) {
-        // Silent
-      }
+      } catch (err) {}
     }
 
     fetchMaterials()
 
     const interval = setInterval(fetchMaterials, 30000)
-
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') fetchMaterials()
     }
@@ -247,17 +242,9 @@ export default function UserDashboard() {
           .order('total_points', { ascending: false })
           .limit(5)
 
-        if (error) {
-          console.error('Error fetching top collectors:', error)
-          return
-        }
-
-        if (data) {
-          setTopCollectors(data)
-        }
-      } catch (error) {
-        // Silent fail
-      }
+        if (error) return
+        if (data) setTopCollectors(data)
+      } catch (error) {}
     }
 
     fetchTopCollectors()
@@ -356,7 +343,6 @@ export default function UserDashboard() {
           }))
         }
       } catch {
-        // Silent fail
       } finally {
         setLoading(false)
       }
@@ -366,34 +352,45 @@ export default function UserDashboard() {
   }, [])
 
   // ================================================================
-  // CAMERA — FIXED FOR MOBILE
-  // 1. Mounts <video> before calling getUserMedia
-  // 2. Waits one animation frame + tiny delay
-  // 3. Handles HTTPS requirement, permission errors, and iOS quirks
+  // CAMERA — MOBILE-SAFE
   // ================================================================
+  const waitForVideoRef = async (
+    ref: React.RefObject<HTMLVideoElement | null>,
+    timeout = 2000
+  ) => {
+    const start = Date.now()
+    while (!ref.current) {
+      if (Date.now() - start > timeout) return false
+      await new Promise(r => requestAnimationFrame(() => r(true)))
+      await new Promise(r => setTimeout(r, 30))
+    }
+    return true
+  }
+
   const startCamera = async () => {
     setCameraError(null)
-    setCameraActive(true) // ← Mount the <video> FIRST
+    setCameraActive(true)
+    if (isMobile) setShowMobileCamera(true)
 
-    // Wait for the DOM to actually render the video element
-    await new Promise(resolve => requestAnimationFrame(() => resolve(true)))
-    await new Promise(resolve => setTimeout(resolve, 100))
+    const ready = await waitForVideoRef(videoRef)
+    if (!ready) {
+      setCameraError('Camera view did not load. Please try again.')
+      setCameraActive(false)
+      setShowMobileCamera(false)
+      return
+    }
+
+    await new Promise(r => setTimeout(r, 100))
 
     try {
-      // Check for secure context (HTTPS or localhost)
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error(
-          'Camera API not available. Your browser may not support it, or the page is not served over HTTPS.'
+          'Camera API not available. Make sure the page is served over HTTPS and your browser supports camera access.'
         )
-      }
-
-      if (!videoRef.current) {
-        throw new Error('Video element not ready. Please try again.')
       }
 
       let stream: MediaStream | null = null
 
-      // Try the requested camera first
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
@@ -404,34 +401,30 @@ export default function UserDashboard() {
           audio: false
         })
       } catch (err) {
-        console.warn('Preferred camera failed, trying basic constraints:', err)
-        // Fallback: no constraints, any camera
+        console.warn('Preferred camera failed, trying fallback:', err)
         stream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: false
         })
       }
 
-      if (!stream) {
-        throw new Error('Could not access any camera.')
-      }
+      if (!stream) throw new Error('Could not access any camera.')
 
       const video = videoRef.current
+      if (!video) throw new Error('Video element not ready.')
+
       video.srcObject = stream
-      video.setAttribute('playsinline', 'true')        // iOS Safari
-      video.setAttribute('webkit-playsinline', 'true') // older iOS
+      video.setAttribute('playsinline', 'true')
+      video.setAttribute('webkit-playsinline', 'true')
       video.muted = true
       video.playsInline = true
 
-      // Wait for metadata to load
       await new Promise<void>((resolve) => {
-        if (!video) return resolve()
         const onLoaded = () => {
           video.removeEventListener('loadedmetadata', onLoaded)
           resolve()
         }
         video.addEventListener('loadedmetadata', onLoaded)
-        // Fallback: resolve after 1.5s anyway
         setTimeout(resolve, 1500)
       })
 
@@ -446,7 +439,6 @@ export default function UserDashboard() {
     } catch (err: any) {
       console.error('Error accessing camera:', err)
 
-      // Friendly error messages
       let msg = 'Unable to access camera.'
       if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
         msg = 'Camera permission was denied. Please allow camera access in your browser settings and reload the page.'
@@ -462,6 +454,7 @@ export default function UserDashboard() {
 
       setCameraError(msg)
       setCameraActive(false)
+      setShowMobileCamera(false)
     }
   }
 
@@ -474,6 +467,7 @@ export default function UserDashboard() {
       videoRef.current.srcObject = null
     }
     setCameraActive(false)
+    setShowMobileCamera(false)
   }
 
   const captureImage = () => {
@@ -539,9 +533,7 @@ export default function UserDashboard() {
           }))
         }
       }
-
     } catch (error) {
-      console.error('Classification error:', error)
       setScannerResult({
         wasteType: 'Error',
         confidence: 0,
@@ -557,35 +549,31 @@ export default function UserDashboard() {
     setCapturedImage(null)
     setCameraActive(false)
     setCameraError(null)
+    setShowMobileCamera(false)
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
   }
 
   const toggleCamera = () => {
-    if (isMobile) {
-      setCameraFacing(prev => prev === 'environment' ? 'user' : 'environment')
-      if (cameraActive) {
-        stopCamera()
-        setTimeout(() => startCamera(), 300)
-      }
-    } else {
-      if (cameraActive) {
-        stopCamera()
-        setTimeout(() => startCamera(), 300)
-      }
+    setCameraFacing(prev => prev === 'environment' ? 'user' : 'environment')
+    if (cameraActive) {
+      stopCamera()
+      setTimeout(() => startCamera(), 300)
     }
   }
 
-  // Verification
+  // ================================================================
+  // VERIFICATION
+  // ================================================================
   const openVerification = () => {
     setShowVerification(true)
-    setVerificationImage(null)
-    setIsVerified(false)
-    setVerificationMessage('Please take a photo of your recyclable items with a weight scale visible.')
+    if (!verificationImage) {
+      setVerificationMessage('Please take a photo of your recyclable items with a weight scale visible.')
+    }
   }
 
-  const uploadVerificationImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVerificationFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
@@ -593,6 +581,7 @@ export default function UserDashboard() {
     reader.onload = async (event) => {
       const imageDataUrl = event.target?.result as string
       setVerificationImage(imageDataUrl)
+      setIsVerified(false)
       await verifyImage(imageDataUrl)
     }
     reader.readAsDataURL(file)
@@ -605,7 +594,7 @@ export default function UserDashboard() {
     try {
       await new Promise(resolve => setTimeout(resolve, 2000))
       setIsVerified(true)
-      setVerificationMessage('Verification successful! Your recycling record has been validated.')
+      setVerificationMessage('Verification successful! Your proof has been validated.')
     } catch (error) {
       setVerificationMessage('Verification failed. Please try again with a clearer image showing the weight scale.')
       setIsVerified(false)
@@ -616,16 +605,20 @@ export default function UserDashboard() {
 
   const closeVerification = () => {
     setShowVerification(false)
+  }
+
+  const removeVerification = () => {
     setVerificationImage(null)
     setIsVerified(false)
     setVerificationMessage('')
-    setVerificationLoading(false)
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop())
-      streamRef.current = null
+    if (verificationFileInputRef.current) {
+      verificationFileInputRef.current.value = ''
     }
   }
 
+  // ================================================================
+  // SUBMIT
+  // ================================================================
   const showSuccessNotification = (points: number, weight: number, wasteType: string) => {
     setNotification({
       type: 'success',
@@ -640,9 +633,15 @@ export default function UserDashboard() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
+    if (!verificationImage) {
+      alert('Please upload proof of your recyclable materials with a weight scale first.')
+      setShowVerification(true)
+      return
+    }
+
     if (!isVerified) {
-      alert('Please verify your recyclable materials with a photo showing the weight scale first.')
+      alert('Your proof is still being verified. Please wait a moment.')
       return
     }
 
@@ -684,8 +683,7 @@ export default function UserDashboard() {
           waste_type: formData.wasteType,
           weight_kg: weight,
           points_earned: formData.points,
-          status: 'Completed',
-          verification_image: verificationImage || null
+          status: 'Completed'
         })
         .select()
 
@@ -752,8 +750,7 @@ export default function UserDashboard() {
       })
       setShowForm(false)
       resetScanner()
-      setIsVerified(false)
-      setVerificationImage(null)
+      removeVerification()
       
       showSuccessNotification(formData.points, weight, formData.wasteType)
 
@@ -772,8 +769,7 @@ export default function UserDashboard() {
     })
     setShowForm(false)
     resetScanner()
-    closeVerification()
-    setIsVerified(false)
+    removeVerification()
   }
 
   if (loading) {
@@ -800,6 +796,8 @@ export default function UserDashboard() {
     { label: 'Collections', value: userData.collections.toString(), change: '', icon: Truck, cardClass: 'stat-square green' },
     { label: 'Rank', value: `#${userData.rank}`, change: 'View All', icon: Crown, cardClass: 'stat-square purple', clickable: true, showUserLine: true },
   ]
+
+  const submitDisabled = submitting || !formData.weightKg || parseFloat(formData.weightKg) <= 0 || !isVerified || !verificationImage
 
   return (
     <div className="user-container" style={{ position: 'relative' }}>
@@ -1244,9 +1242,33 @@ export default function UserDashboard() {
                   )}
                 </button>
                 {verificationImage && (
-                  <div style={{ marginTop: '8px' }}>
+                  <div style={{ marginTop: '8px', position: 'relative' }}>
                     <img src={verificationImage} alt="Verification"
-                      style={{ maxHeight: '80px', borderRadius: '8px', objectFit: 'cover', width: '100%' }} />
+                      style={{ maxHeight: '120px', borderRadius: '8px', objectFit: 'cover', width: '100%' }} />
+                    <button
+                      type="button"
+                      onClick={removeVerification}
+                      style={{
+                        position: 'absolute',
+                        top: '6px',
+                        right: '6px',
+                        width: '26px',
+                        height: '26px',
+                        borderRadius: '50%',
+                        border: 'none',
+                        backgroundColor: 'rgba(220, 38, 38, 0.9)',
+                        color: '#ffffff',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '14px',
+                        fontWeight: 700
+                      }}
+                      title="Remove proof"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
                 )}
               </div>
@@ -1254,9 +1276,12 @@ export default function UserDashboard() {
               <div className="form-actions">
                 <button
                   type="submit"
-                  disabled={submitting || !formData.weightKg || parseFloat(formData.weightKg) <= 0 || !isVerified}
+                  disabled={submitDisabled}
                   className="btn-submit"
-                  style={{ opacity: (!isVerified) ? 0.5 : 1, cursor: (!isVerified) ? 'not-allowed' : 'pointer' }}
+                  style={{
+                    opacity: submitDisabled ? 0.5 : 1,
+                    cursor: submitDisabled ? 'not-allowed' : 'pointer'
+                  }}
                 >
                   {submitting ? 'Submitting...' : 'Submit Recycling'}
                 </button>
@@ -1265,10 +1290,12 @@ export default function UserDashboard() {
                 </button>
               </div>
 
-              {!isVerified && (
+              {(!verificationImage || !isVerified) && (
                 <p style={{ fontSize: '12px', color: '#ef4444', marginTop: '8px', textAlign: 'center' }}>
                   <AlertCircle className="w-4 h-4 inline" style={{ marginRight: '4px' }} />
-                  You must upload proof with a weight scale before submitting.
+                  {!verificationImage
+                    ? 'You must upload proof with a weight scale before submitting.'
+                    : 'Waiting for your proof to be verified...'}
                 </p>
               )}
             </form>
@@ -1309,10 +1336,7 @@ export default function UserDashboard() {
                     border: '2px dashed #e5e7eb', borderRadius: '12px', padding: '32px',
                     textAlign: 'center', cursor: 'pointer'
                   }}
-                  onClick={() => {
-                    if (isMobile) startCamera()
-                    else verificationFileInputRef.current?.click()
-                  }}
+                  onClick={() => verificationFileInputRef.current?.click()}
                 >
                   <Camera className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                   <p style={{ color: '#6b7280', fontWeight: 500 }}>
@@ -1321,55 +1345,60 @@ export default function UserDashboard() {
                   <p style={{ color: '#9ca3af', fontSize: '12px', marginTop: '4px' }}>
                     Make sure the weight scale is visible
                   </p>
-                  <input
-                    ref={verificationFileInputRef}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    onChange={uploadVerificationImage}
-                    className="hidden"
-                  />
                 </div>
               ) : (
                 <div style={{ marginBottom: '16px' }}>
                   <div style={{ borderRadius: '12px', overflow: 'hidden' }}>
                     <img src={verificationImage} alt="Verification" style={{ width: '100%', maxHeight: '300px', objectFit: 'cover' }} />
                   </div>
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
                     <button
                       onClick={() => {
-                        setVerificationImage(null)
-                        if (isMobile) startCamera()
-                        else verificationFileInputRef.current?.click()
+                        if (verificationFileInputRef.current) {
+                          verificationFileInputRef.current.value = ''
+                          verificationFileInputRef.current.click()
+                        }
                       }}
-                      style={{ padding: '6px 16px', backgroundColor: '#f3f4f6', color: '#374151', border: 'none', borderRadius: '8px', fontSize: '13px', cursor: 'pointer' }}
+                      style={{ padding: '8px 16px', backgroundColor: '#f3f4f6', color: '#374151', border: 'none', borderRadius: '8px', fontSize: '13px', cursor: 'pointer', flex: 1, minWidth: '120px' }}
                     >
                       <RefreshCw className="w-4 h-4 inline mr-1" />
                       Retake
                     </button>
-                    <button
-                      onClick={() => verifyImage(verificationImage)}
-                      disabled={verificationLoading}
-                      style={{ padding: '6px 16px', backgroundColor: '#16a34a', color: '#ffffff', border: 'none', borderRadius: '8px', fontSize: '13px', cursor: verificationLoading ? 'not-allowed' : 'pointer', opacity: verificationLoading ? 0.6 : 1 }}
-                    >
-                      {verificationLoading ? (
-                        <><Loader2 className="w-4 h-4 inline animate-spin mr-1" />Verifying...</>
-                      ) : (
-                        <><CheckCircle className="w-4 h-4 inline mr-1" />Verify Image</>
-                      )}
-                    </button>
+                    {!isVerified && !verificationLoading && (
+                      <button
+                        onClick={() => verifyImage(verificationImage)}
+                        disabled={verificationLoading}
+                        style={{ padding: '8px 16px', backgroundColor: '#16a34a', color: '#ffffff', border: 'none', borderRadius: '8px', fontSize: '13px', cursor: verificationLoading ? 'not-allowed' : 'pointer', opacity: verificationLoading ? 0.6 : 1, flex: 1, minWidth: '120px' }}
+                      >
+                        <CheckCircle className="w-4 h-4 inline mr-1" />
+                        Verify Image
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
 
+              <input
+                ref={verificationFileInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleVerificationFileChange}
+                style={{ display: 'none' }}
+              />
+
               {verificationMessage && (
                 <div style={{
                   padding: '12px 16px', borderRadius: '8px',
-                  backgroundColor: isVerified ? '#f0fdf4' : '#fef2f2',
-                  border: `1px solid ${isVerified ? '#86efac' : '#fecaca'}`,
-                  marginBottom: '16px'
+                  backgroundColor: isVerified ? '#f0fdf4' : verificationLoading ? '#eff6ff' : '#fef2f2',
+                  border: `1px solid ${isVerified ? '#86efac' : verificationLoading ? '#93c5fd' : '#fecaca'}`,
+                  marginBottom: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
                 }}>
-                  <p style={{ color: isVerified ? '#166534' : '#dc2626', fontSize: '14px' }}>
+                  {verificationLoading && <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#2563eb' }} />}
+                  <p style={{ color: isVerified ? '#166534' : verificationLoading ? '#1d4ed8' : '#dc2626', fontSize: '14px', margin: 0 }}>
                     {verificationMessage}
                   </p>
                 </div>
@@ -1377,10 +1406,10 @@ export default function UserDashboard() {
 
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button onClick={closeVerification} style={{ flex: 1, padding: '10px', backgroundColor: '#f3f4f6', color: '#6b7280', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: 500, cursor: 'pointer' }}>
-                  Cancel
+                  Close
                 </button>
                 <button
-                  onClick={() => { if (isVerified) closeVerification() }}
+                  onClick={closeVerification}
                   disabled={!isVerified}
                   style={{ flex: 1, padding: '10px', backgroundColor: isVerified ? '#16a34a' : '#9ca3af', color: '#ffffff', border: 'none', borderRadius: '8px', fontSize: '14px', fontWeight: 600, cursor: isVerified ? 'pointer' : 'not-allowed' }}
                 >
@@ -1395,12 +1424,319 @@ export default function UserDashboard() {
 
       {/* Mobile Camera FAB */}
       <button
-        onClick={() => { if (!scannerResult && !cameraActive) startCamera() }}
+        onClick={() => {
+          if (!scannerResult && !cameraActive) {
+            setShowMobileCamera(true)
+            startCamera()
+          }
+        }}
         className="user-camera-fab"
         aria-label="Scan Waste"
       >
         <Camera className="w-6 h-6" />
       </button>
+
+      {/* Mobile Fullscreen Camera Overlay */}
+      {isMobile && (showMobileCamera || cameraActive || capturedImage || scannerResult) && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 999999,
+            backgroundColor: '#0a0a0a',
+            display: 'flex',
+            flexDirection: 'column'
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '14px 16px',
+              color: '#ffffff',
+              flexShrink: 0
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Scan style={{ width: '20px', height: '20px', color: '#4ade80' }} />
+              <span style={{ fontWeight: 600, fontSize: '15px' }}>Waste Scanner</span>
+            </div>
+            <button
+              onClick={() => {
+                resetScanner()
+                setShowMobileCamera(false)
+              }}
+              aria-label="Close"
+              style={{
+                width: '40px',
+                height: '40px',
+                borderRadius: '50%',
+                backgroundColor: 'rgba(255, 255, 255, 0.15)',
+                border: 'none',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer'
+              }}
+            >
+              <X style={{ width: '22px', height: '22px' }} />
+            </button>
+          </div>
+
+          <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+            {cameraActive ? (
+              <>
+                <video
+                  ref={videoRef}
+                  playsInline
+                  autoPlay
+                  muted
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover'
+                  }}
+                />
+                <canvas ref={canvasRef} style={{ display: 'none' }} />
+
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
+                    transform: 'translate(-50%, -50%)',
+                    width: '70%',
+                    height: '70%',
+                    border: '2px dashed rgba(255,255,255,0.4)',
+                    borderRadius: '12px',
+                    pointerEvents: 'none'
+                  }}
+                />
+
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: '30px',
+                    left: 0,
+                    right: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '24px'
+                  }}
+                >
+                  <button
+                    onClick={captureImage}
+                    aria-label="Capture"
+                    style={{
+                      width: '72px',
+                      height: '72px',
+                      borderRadius: '50%',
+                      backgroundColor: 'rgba(255,255,255,0.9)',
+                      border: '4px solid #ffffff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 20px rgba(0,0,0,0.4)'
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: '50px',
+                        height: '50px',
+                        borderRadius: '50%',
+                        backgroundColor: '#ffffff',
+                        border: '3px solid #16a34a'
+                      }}
+                    />
+                  </button>
+                  <button
+                    onClick={toggleCamera}
+                    aria-label="Flip"
+                    style={{
+                      width: '48px',
+                      height: '48px',
+                      borderRadius: '50%',
+                      backgroundColor: 'rgba(255,255,255,0.2)',
+                      border: 'none',
+                      color: '#ffffff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      backdropFilter: 'blur(4px)'
+                    }}
+                  >
+                    <RefreshCw style={{ width: '20px', height: '20px' }} />
+                  </button>
+                </div>
+
+                {cameraError && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      backgroundColor: 'rgba(0,0,0,0.75)',
+                      color: '#ffffff',
+                      padding: '16px 20px',
+                      borderRadius: '10px',
+                      textAlign: 'center',
+                      maxWidth: '90%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      fontSize: '13px'
+                    }}
+                  >
+                    <AlertCircle style={{ width: '20px', height: '20px', flexShrink: 0 }} />
+                    <span>{cameraError}</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div
+                style={{
+                  padding: '20px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  height: '100%'
+                }}
+              >
+                {capturedImage && (
+                  <div
+                    style={{
+                      borderRadius: '12px',
+                      overflow: 'hidden',
+                      maxWidth: '90%',
+                      maxHeight: '40vh',
+                      marginBottom: '16px'
+                    }}
+                  >
+                    <img
+                      src={capturedImage}
+                      alt="Captured waste"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  </div>
+                )}
+
+                {scanning ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '12px',
+                      color: '#ffffff'
+                    }}
+                  >
+                    <Loader2
+                      style={{
+                        width: '40px',
+                        height: '40px',
+                        color: '#4ade80',
+                        animation: 'spin 1s linear infinite'
+                      }}
+                    />
+                    <span>Identifying waste type...</span>
+                  </div>
+                ) : scannerResult ? (
+                  <div style={{ width: '100%', maxWidth: '400px', textAlign: 'center' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        color:
+                          scannerResult.wasteType !== 'Unknown' && scannerResult.wasteType !== 'Error'
+                            ? '#4ade80'
+                            : '#fbbf24',
+                        fontWeight: 600,
+                        fontSize: '18px',
+                        marginBottom: '20px'
+                      }}
+                    >
+                      {scannerResult.wasteType !== 'Unknown' && scannerResult.wasteType !== 'Error' ? (
+                        <CheckCircle style={{ width: '24px', height: '24px' }} />
+                      ) : (
+                        <AlertCircle style={{ width: '24px', height: '24px' }} />
+                      )}
+                      <span>
+                        {scannerResult.wasteType !== 'Unknown' && scannerResult.wasteType !== 'Error'
+                          ? `Detected: ${scannerResult.wasteType}`
+                          : scannerResult.wasteType === 'Error'
+                          ? 'Error detecting'
+                          : 'Unknown material'}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                      <button
+                        onClick={resetScanner}
+                        style={{
+                          padding: '10px 20px',
+                          backgroundColor: 'rgba(255,255,255,0.15)',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: '10px',
+                          fontSize: '14px',
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                      >
+                        <RefreshCw style={{ width: '16px', height: '16px' }} />
+                        Retry
+                      </button>
+                      {scannerResult.wasteType !== 'Unknown' && scannerResult.wasteType !== 'Error' && (
+                        <button
+                          onClick={() => {
+                            setScannerResult(null)
+                            setCapturedImage(null)
+                            setShowMobileCamera(false)
+                            setShowForm(true)
+                          }}
+                          style={{
+                            padding: '10px 20px',
+                            backgroundColor: '#16a34a',
+                            color: '#ffffff',
+                            border: 'none',
+                            borderRadius: '10px',
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                          }}
+                        >
+                          <Plus style={{ width: '16px', height: '16px' }} />
+                          Use This Type
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ color: '#ffffff', textAlign: 'center' }}>
+                    <Camera style={{ width: '48px', height: '48px', marginBottom: '12px', color: '#4ade80' }} />
+                    <p>Initializing camera...</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
