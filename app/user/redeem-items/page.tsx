@@ -107,12 +107,10 @@ export default function RedeemItemsListPage() {
     }
   }
 
-  // Count items that are ready to claim (not yet Received)
   const readyToClaimCount = redeemHistory.filter(
     (item) => item.status !== 'Received'
   ).length
 
-  // Loading State
   if (loading) {
     return (
       <div className="redeem-loading-container">
@@ -124,7 +122,6 @@ export default function RedeemItemsListPage() {
     )
   }
 
-  // Error State
   if (error) {
     return (
       <div className="redeem-loading-container">
@@ -167,19 +164,17 @@ export default function RedeemItemsListPage() {
           minHeight: 0
         }}
       >
-        {/* Header — centered icon + title, badge on the right */}
+        {/* Header — centered icon + title + subtitle + badge stacked, no overlap */}
         <div
           className="redeem-header-card"
           style={{
-            position: 'relative',
-            padding: '24px 24px',
+            padding: '20px 20px',
             background: 'linear-gradient(135deg, #B6FFA1, #A0D683)',
             border: '1px solid #72BF78',
             boxShadow: '0 2px 8px rgba(114, 191, 120, 0.2)',
             flexShrink: 0
           }}
         >
-          {/* Centered content block */}
           <div
             style={{
               display: 'flex',
@@ -206,17 +201,20 @@ export default function RedeemItemsListPage() {
             >
               <Gift size={26} />
             </div>
+
             <div
               className="redeem-header-title"
               style={{
                 fontSize: '22px',
                 fontWeight: 700,
                 color: '#1a1a1a',
-                margin: 0
+                margin: 0,
+                lineHeight: 1.2
               }}
             >
               My Redeemed Items
             </div>
+
             <div
               className="redeem-header-subtitle"
               style={{
@@ -227,31 +225,28 @@ export default function RedeemItemsListPage() {
             >
               {userPoints} points available • {redeemHistory.length} items redeemed
             </div>
-          </div>
 
-          {/* Badge — absolutely positioned on the right */}
-          <span
-            className="redeem-header-badge"
-            style={{
-              position: 'absolute',
-              top: '50%',
-              right: '24px',
-              transform: 'translateY(-50%)',
-              whiteSpace: 'nowrap',
-              background: '#ffffff',
-              color: '#3b8f40',
-              padding: '4px 12px',
-              borderRadius: '9999px',
-              fontSize: '12px',
-              fontWeight: 600,
-              boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
-            }}
-          >
-            {redeemHistory.length} redeemed
-          </span>
+            {/* Badge — now in normal flow, centered below subtitle */}
+            <span
+              className="redeem-header-badge"
+              style={{
+                display: 'inline-block',
+                whiteSpace: 'nowrap',
+                background: '#ffffff',
+                color: '#3b8f40',
+                padding: '4px 12px',
+                borderRadius: '9999px',
+                fontSize: '12px',
+                fontWeight: 600,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
+              }}
+            >
+              {redeemHistory.length} redeemed
+            </span>
+          </div>
         </div>
 
-        {/* Ready-to-Claim / All-claimed message (stays at top, above card) */}
+        {/* Ready-to-Claim / All-claimed message */}
         {readyToClaimCount > 0 && (
           <div
             style={{
@@ -315,7 +310,7 @@ export default function RedeemItemsListPage() {
             overflow: 'hidden'
           }}
         >
-          {/* Card header — fixed at top */}
+          {/* Card header */}
           <div
             style={{
               flexShrink: 0,

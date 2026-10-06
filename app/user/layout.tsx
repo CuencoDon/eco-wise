@@ -31,6 +31,7 @@ export default function UserLayout({
   const [showDropdown, setShowDropdown] = useState(false)
   const [showAccountMenu, setShowAccountMenu] = useState(false)
   const [loadingNotifications, setLoadingNotifications] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const accountRef = useRef<HTMLDivElement>(null)
 
@@ -46,6 +47,23 @@ export default function UserLayout({
   const [passwordSending, setPasswordSending] = useState(false)
   const [passwordMessage, setPasswordMessage] = useState('')
   const [passwordError, setPasswordError] = useState('')
+
+  // ===== Responsive detection =====
+  useEffect(() => {
+    const checkMobile = () => {
+      const mq = window.matchMedia('(max-width: 640px)')
+      const ua = navigator.userAgent || ''
+      const uaMobile = /Android|iPhone|iPad|iPod|BlackBerry|Windows Phone|webOS/i.test(ua)
+      setIsMobile(mq.matches || uaMobile)
+    }
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    window.addEventListener('orientationchange', checkMobile)
+    return () => {
+      window.removeEventListener('resize', checkMobile)
+      window.removeEventListener('orientationchange', checkMobile)
+    }
+  }, [])
 
   // Get user session + load read IDs
   useEffect(() => {
@@ -446,45 +464,72 @@ export default function UserLayout({
                 {showDropdown && (
                   <div
                     onClick={(e) => e.stopPropagation()}
-                    style={{
-                      position: 'absolute',
-                      top: 'calc(100% + 10px)',
-                      right: 0,
-                      width: '340px',
-                      maxHeight: '440px',
-                      backgroundColor: '#ffffff',
-                      borderRadius: '12px',
-                      boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
-                      border: '1px solid #e5e7eb',
-                      zIndex: 100000,
-                      overflow: 'hidden',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      pointerEvents: 'auto'
-                    }}
+                    style={
+                      isMobile
+                        ? {
+                            // 📱 MOBILE: fixed position, full width minus small margins
+                            position: 'fixed',
+                            top: '64px',
+                            left: '8px',
+                            right: '8px',
+                            width: 'auto',
+                            maxWidth: 'calc(100vw - 16px)',
+                            maxHeight: '60vh',
+                            backgroundColor: '#ffffff',
+                            borderRadius: '12px',
+                            boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+                            border: '1px solid #e5e7eb',
+                            zIndex: 100000,
+                            overflow: 'hidden',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            pointerEvents: 'auto'
+                          }
+                        : {
+                            // 💻 DESKTOP: anchored under the bell
+                            position: 'absolute',
+                            top: 'calc(100% + 10px)',
+                            right: 0,
+                            width: '340px',
+                            maxHeight: '440px',
+                            backgroundColor: '#ffffff',
+                            borderRadius: '12px',
+                            boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+                            border: '1px solid #e5e7eb',
+                            zIndex: 100000,
+                            overflow: 'hidden',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            pointerEvents: 'auto'
+                          }
+                    }
                   >
                     <div
                       style={{
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        padding: '12px 16px',
+                        padding: isMobile ? '10px 12px' : '12px 16px',
                         borderBottom: '1px solid #f3f4f6',
-                        backgroundColor: '#f9fafb'
+                        backgroundColor: '#f9fafb',
+                        flexShrink: 0
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Bell style={{ width: '16px', height: '16px', color: '#374151' }} />
-                        <span style={{ fontSize: '14px', fontWeight: 600, color: '#1a1a1a' }}>Notifications</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                        <Bell style={{ width: isMobile ? '14px' : '16px', height: isMobile ? '14px' : '16px', color: '#374151', flexShrink: 0 }} />
+                        <span style={{ fontSize: isMobile ? '13px' : '14px', fontWeight: 600, color: '#1a1a1a', whiteSpace: 'nowrap' }}>
+                          Notifications
+                        </span>
                         {unreadCount > 0 && (
                           <span
                             style={{
-                              fontSize: '10px',
+                              fontSize: isMobile ? '9px' : '10px',
                               fontWeight: 600,
                               backgroundColor: '#dc2626',
                               color: '#ffffff',
                               padding: '2px 6px',
-                              borderRadius: '8px'
+                              borderRadius: '8px',
+                              flexShrink: 0
                             }}
                           >
                             {unreadCount} new
@@ -498,14 +543,23 @@ export default function UserLayout({
                             e.stopPropagation()
                             markAllAsRead()
                           }}
-                          style={{ fontSize: '11px', color: '#72BF78', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 500 }}
+                          style={{
+                            fontSize: isMobile ? '10px' : '11px',
+                            color: '#72BF78',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontWeight: 500,
+                            flexShrink: 0,
+                            whiteSpace: 'nowrap'
+                          }}
                         >
                           Mark all read
                         </button>
                       )}
                     </div>
 
-                    <div style={{ overflowY: 'auto', flex: 1, maxHeight: '380px' }}>
+                    <div style={{ overflowY: 'auto', flex: 1, maxHeight: isMobile ? 'calc(60vh - 60px)' : '380px' }}>
                       {loadingNotifications && notifications.length === 0 ? (
                         <div style={{ padding: '24px', textAlign: 'center', color: '#6b7280', fontSize: '13px' }}>
                           Loading notifications...
@@ -526,7 +580,7 @@ export default function UserLayout({
                                 handleNotificationClick(n)
                               }}
                               style={{
-                                padding: '12px 16px',
+                                padding: isMobile ? '10px 12px' : '12px 16px',
                                 borderBottom: '1px solid #f3f4f6',
                                 cursor: 'pointer',
                                 backgroundColor: isRead ? '#ffffff' : '#f0fdf4',
@@ -537,12 +591,12 @@ export default function UserLayout({
                                 (e.currentTarget.style.backgroundColor = isRead ? '#ffffff' : '#f0fdf4')
                               }
                             >
-                              <div style={{ display: 'flex', gap: '10px' }}>
+                              <div style={{ display: 'flex', gap: isMobile ? '8px' : '10px' }}>
                                 <div
                                   style={{
                                     flexShrink: 0,
-                                    width: '32px',
-                                    height: '32px',
+                                    width: isMobile ? '28px' : '32px',
+                                    height: isMobile ? '28px' : '32px',
                                     borderRadius: '50%',
                                     backgroundColor: `${getTypeColor(n.type)}20`,
                                     display: 'flex',
@@ -555,7 +609,7 @@ export default function UserLayout({
                                 </div>
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
-                                    <p style={{ fontSize: '13px', fontWeight: 600, color: '#1a1a1a', margin: 0 }}>
+                                    <p style={{ fontSize: isMobile ? '12px' : '13px', fontWeight: 600, color: '#1a1a1a', margin: 0 }}>
                                       {n.title}
                                     </p>
                                     {!isRead && (
@@ -573,7 +627,7 @@ export default function UserLayout({
                                   </div>
                                   <p
                                     style={{
-                                      fontSize: '12px',
+                                      fontSize: isMobile ? '11px' : '12px',
                                       color: '#6b7280',
                                       margin: '2px 0 0',
                                       whiteSpace: 'nowrap',
@@ -583,7 +637,7 @@ export default function UserLayout({
                                   >
                                     {n.message}
                                   </p>
-                                  <p style={{ fontSize: '10px', color: '#9ca3af', margin: '4px 0 0' }}>
+                                  <p style={{ fontSize: isMobile ? '9px' : '10px', color: '#9ca3af', margin: '4px 0 0' }}>
                                     {getRelativeTime(n.createdAt)}
                                   </p>
                                 </div>
@@ -621,36 +675,59 @@ export default function UserLayout({
                 {showAccountMenu && (
                   <div
                     onClick={(e) => e.stopPropagation()}
-                    style={{
-                      position: 'absolute',
-                      top: 'calc(100% + 10px)',
-                      right: 0,
-                      width: '300px',
-                      backgroundColor: '#ffffff',
-                      borderRadius: '12px',
-                      boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
-                      border: '1px solid #e5e7eb',
-                      zIndex: 100000,
-                      overflow: 'hidden',
-                      display: 'flex',
-                      flexDirection: 'column'
-                    }}
+                    style={
+                      isMobile
+                        ? {
+                            // 📱 MOBILE: fixed position, full width minus small margins
+                            position: 'fixed',
+                            top: '64px',
+                            left: '8px',
+                            right: '8px',
+                            width: 'auto',
+                            maxWidth: 'calc(100vw - 16px)',
+                            maxHeight: '70vh',
+                            overflowY: 'auto',
+                            backgroundColor: '#ffffff',
+                            borderRadius: '12px',
+                            boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+                            border: '1px solid #e5e7eb',
+                            zIndex: 100000,
+                            display: 'flex',
+                            flexDirection: 'column'
+                          }
+                        : {
+                            // 💻 DESKTOP: anchored under the avatar
+                            position: 'absolute',
+                            top: 'calc(100% + 10px)',
+                            right: 0,
+                            width: '300px',
+                            backgroundColor: '#ffffff',
+                            borderRadius: '12px',
+                            boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+                            border: '1px solid #e5e7eb',
+                            zIndex: 100000,
+                            overflow: 'hidden',
+                            display: 'flex',
+                            flexDirection: 'column'
+                          }
+                    }
                   >
                     {/* User info header */}
                     <div
                       style={{
-                        padding: '16px',
+                        padding: isMobile ? '12px 14px' : '16px',
                         backgroundColor: '#f9fafb',
                         borderBottom: '1px solid #f3f4f6',
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '12px'
+                        gap: '12px',
+                        flexShrink: 0
                       }}
                     >
                       <div
                         style={{
-                          width: '48px',
-                          height: '48px',
+                          width: isMobile ? '42px' : '48px',
+                          height: isMobile ? '42px' : '48px',
                           borderRadius: '50%',
                           background: 'linear-gradient(135deg, #B6FFA1, #72BF78)',
                           display: 'flex',
@@ -658,7 +735,7 @@ export default function UserLayout({
                           justifyContent: 'center',
                           color: '#ffffff',
                           fontWeight: 700,
-                          fontSize: '20px',
+                          fontSize: isMobile ? '17px' : '20px',
                           flexShrink: 0
                         }}
                       >
@@ -667,7 +744,7 @@ export default function UserLayout({
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <p
                           style={{
-                            fontSize: '15px',
+                            fontSize: isMobile ? '13px' : '15px',
                             fontWeight: 600,
                             color: '#1a1a1a',
                             margin: 0,
@@ -680,7 +757,7 @@ export default function UserLayout({
                         </p>
                         <p
                           style={{
-                            fontSize: '12px',
+                            fontSize: isMobile ? '11px' : '12px',
                             color: '#6b7280',
                             margin: '2px 0 0',
                             overflow: 'hidden',
@@ -699,22 +776,23 @@ export default function UserLayout({
                         display: 'grid',
                         gridTemplateColumns: '1fr 1fr',
                         gap: '8px',
-                        padding: '12px 16px',
-                        borderBottom: '1px solid #f3f4f6'
+                        padding: isMobile ? '10px 12px' : '12px 16px',
+                        borderBottom: '1px solid #f3f4f6',
+                        flexShrink: 0
                       }}
                     >
                       <div
                         style={{
                           backgroundColor: '#fef3c7',
                           borderRadius: '8px',
-                          padding: '10px 12px',
+                          padding: isMobile ? '8px 10px' : '10px 12px',
                           textAlign: 'center'
                         }}
                       >
-                        <p style={{ fontSize: '10px', color: '#92400e', margin: 0, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        <p style={{ fontSize: isMobile ? '9px' : '10px', color: '#92400e', margin: 0, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                           Points
                         </p>
-                        <p style={{ fontSize: '18px', color: '#78350f', margin: '4px 0 0', fontWeight: 700 }}>
+                        <p style={{ fontSize: isMobile ? '16px' : '18px', color: '#78350f', margin: '4px 0 0', fontWeight: 700 }}>
                           {userPoints.toLocaleString()}
                         </p>
                       </div>
@@ -722,14 +800,14 @@ export default function UserLayout({
                         style={{
                           backgroundColor: '#dcfce7',
                           borderRadius: '8px',
-                          padding: '10px 12px',
+                          padding: isMobile ? '8px 10px' : '10px 12px',
                           textAlign: 'center'
                         }}
                       >
-                        <p style={{ fontSize: '10px', color: '#166534', margin: 0, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        <p style={{ fontSize: isMobile ? '9px' : '10px', color: '#166534', margin: 0, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                           Recycled
                         </p>
-                        <p style={{ fontSize: '18px', color: '#14532d', margin: '4px 0 0', fontWeight: 700 }}>
+                        <p style={{ fontSize: isMobile ? '16px' : '18px', color: '#14532d', margin: '4px 0 0', fontWeight: 700 }}>
                           {userRecycled.toFixed(1)} kg
                         </p>
                       </div>
@@ -746,17 +824,18 @@ export default function UserLayout({
                         display: 'flex',
                         alignItems: 'center',
                         gap: '10px',
-                        padding: '12px 16px',
+                        padding: isMobile ? '12px 14px' : '12px 16px',
                         background: 'none',
                         border: 'none',
                         cursor: 'pointer',
                         color: '#374151',
-                        fontSize: '14px',
+                        fontSize: isMobile ? '13px' : '14px',
                         fontWeight: 500,
                         width: '100%',
                         textAlign: 'left',
                         borderBottom: '1px solid #f3f4f6',
-                        transition: 'background 0.15s ease'
+                        transition: 'background 0.15s ease',
+                        flexShrink: 0
                       }}
                       onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f0fdf4')}
                       onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
@@ -775,17 +854,18 @@ export default function UserLayout({
                         display: 'flex',
                         alignItems: 'center',
                         gap: '10px',
-                        padding: '12px 16px',
+                        padding: isMobile ? '12px 14px' : '12px 16px',
                         background: 'none',
                         border: 'none',
                         cursor: 'pointer',
                         color: '#374151',
-                        fontSize: '14px',
+                        fontSize: isMobile ? '13px' : '14px',
                         fontWeight: 500,
                         width: '100%',
                         textAlign: 'left',
                         borderBottom: '1px solid #f3f4f6',
-                        transition: 'background 0.15s ease'
+                        transition: 'background 0.15s ease',
+                        flexShrink: 0
                       }}
                       onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f0fdf4')}
                       onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
@@ -806,16 +886,17 @@ export default function UserLayout({
                         display: 'flex',
                         alignItems: 'center',
                         gap: '10px',
-                        padding: '12px 16px',
+                        padding: isMobile ? '12px 14px' : '12px 16px',
                         background: 'none',
                         border: 'none',
                         cursor: 'pointer',
                         color: '#ef4444',
-                        fontSize: '14px',
+                        fontSize: isMobile ? '13px' : '14px',
                         fontWeight: 500,
                         width: '100%',
                         textAlign: 'left',
-                        transition: 'background 0.15s ease'
+                        transition: 'background 0.15s ease',
+                        flexShrink: 0
                       }}
                       onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#fef2f2')}
                       onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}

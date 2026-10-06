@@ -94,14 +94,35 @@ export default function UserDashboard() {
   const streamRef = useRef<MediaStream | null>(null)
   const verificationFileInputRef = useRef<HTMLInputElement>(null)
 
-  // Check if device is mobile
+  // ================================================================
+  // MOBILE DETECTION — user agent + viewport + resize/orientation
+  // ================================================================
   useEffect(() => {
     const checkMobile = () => {
-      const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera
-      const mobile = /Android|iPhone|iPad|iPod|BlackBerry|Windows Phone|webOS/i.test(userAgent)
-      setIsMobile(mobile)
+      const ua = navigator.userAgent || navigator.vendor || (window as any).opera
+      const uaMobile = /Android|iPhone|iPad|iPod|BlackBerry|Windows Phone|webOS/i.test(ua)
+      const smallScreen = window.innerWidth <= 768
+      setIsMobile(uaMobile || smallScreen)
     }
     checkMobile()
+    window.addEventListener('resize', checkMobile)
+    window.addEventListener('orientationchange', checkMobile)
+    return () => {
+      window.removeEventListener('resize', checkMobile)
+      window.removeEventListener('orientationchange', checkMobile)
+    }
+  }, [])
+
+  // ================================================================
+  // CAMERA CLEANUP ON UNMOUNT — stop tracks when leaving page
+  // ================================================================
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop())
+        streamRef.current = null
+      }
+    }
   }, [])
 
   // ================================================================
@@ -151,7 +172,6 @@ export default function UserDashboard() {
     }
   }, [])
 
-  // Get icon for a material based on its name
   const getIconForMaterial = (name: string) => {
     const n = name.toLowerCase()
     if (n.includes('paper') || n.includes('cardboard') || n.includes('sheet') || n.includes('newspaper')) return FileText
@@ -166,7 +186,6 @@ export default function UserDashboard() {
     return colors[index % colors.length]
   }
 
-  // Build waste-type list from active materials
   const wasteTypes = materials.map((m, i) => ({
     value: m.name,
     icon: getIconForMaterial(m.name),
@@ -177,7 +196,6 @@ export default function UserDashboard() {
     scheduleDay: m.schedule_day
   }))
 
-  // Points per kg — lookup from materials
   const getPointsPerKg = (type: string) => {
     const material = materials.find(m => m.name === type)
     return material?.points_per_kg ?? 5
@@ -189,7 +207,6 @@ export default function UserDashboard() {
     points: 0
   })
 
-  // Auto-set first material when materials load and formData.wasteType is empty
   useEffect(() => {
     if (materials.length > 0 && !formData.wasteType) {
       setFormData(prev => ({
@@ -200,9 +217,6 @@ export default function UserDashboard() {
     }
   }, [materials])
 
-  // ================================================================
-  // RECOMPUTE POINTS when materials change (admin updated pts/kg)
-  // ================================================================
   useEffect(() => {
     if (!formData.wasteType) return
     const material = materials.find(m => m.name === formData.wasteType)
@@ -214,7 +228,6 @@ export default function UserDashboard() {
     }
   }, [materials])
 
-  // Auto-hide notification after 4 seconds
   useEffect(() => {
     if (showNotification) {
       const timer = setTimeout(() => {
@@ -224,7 +237,6 @@ export default function UserDashboard() {
     }
   }, [showNotification])
 
-  // Fetch top collectors
   useEffect(() => {
     const fetchTopCollectors = async () => {
       try {
@@ -271,7 +283,6 @@ export default function UserDashboard() {
     })
   }
 
-  // Function to calculate user's rank
   const calculateUserRank = async (userId: string, userPoints: number) => {
     try {
       const { data: allUsers, error } = await supabase
@@ -354,59 +365,103 @@ export default function UserDashboard() {
     fetchUserData()
   }, [])
 
-  // Camera functions
+  // ================================================================
+  // CAMERA — FIXED FOR MOBILE
+  // 1. Mounts <video> before calling getUserMedia
+  // 2. Waits one animation frame + tiny delay
+  // 3. Handles HTTPS requirement, permission errors, and iOS quirks
+  // ================================================================
   const startCamera = async () => {
     setCameraError(null)
-    setCameraActive(false)
-    
+    setCameraActive(true) // ← Mount the <video> FIRST
+
+    // Wait for the DOM to actually render the video element
+    await new Promise(resolve => requestAnimationFrame(() => resolve(true)))
+    await new Promise(resolve => setTimeout(resolve, 100))
+
     try {
-      let constraints: MediaStreamConstraints = {
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: cameraFacing
-        },
-        audio: false
+      // Check for secure context (HTTPS or localhost)
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error(
+          'Camera API not available. Your browser may not support it, or the page is not served over HTTPS.'
+        )
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints)
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play()
-          setCameraActive(true)
-        }
-        streamRef.current = stream
-        setCameraError(null)
+      if (!videoRef.current) {
+        throw new Error('Video element not ready. Please try again.')
       }
-    } catch (err) {
+
+      let stream: MediaStream | null = null
+
+      // Try the requested camera first
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: cameraFacing },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false
+        })
+      } catch (err) {
+        console.warn('Preferred camera failed, trying basic constraints:', err)
+        // Fallback: no constraints, any camera
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        })
+      }
+
+      if (!stream) {
+        throw new Error('Could not access any camera.')
+      }
+
+      const video = videoRef.current
+      video.srcObject = stream
+      video.setAttribute('playsinline', 'true')        // iOS Safari
+      video.setAttribute('webkit-playsinline', 'true') // older iOS
+      video.muted = true
+      video.playsInline = true
+
+      // Wait for metadata to load
+      await new Promise<void>((resolve) => {
+        if (!video) return resolve()
+        const onLoaded = () => {
+          video.removeEventListener('loadedmetadata', onLoaded)
+          resolve()
+        }
+        video.addEventListener('loadedmetadata', onLoaded)
+        // Fallback: resolve after 1.5s anyway
+        setTimeout(resolve, 1500)
+      })
+
+      try {
+        await video.play()
+      } catch (playErr) {
+        console.warn('video.play() rejected:', playErr)
+      }
+
+      streamRef.current = stream
+      setCameraError(null)
+    } catch (err: any) {
       console.error('Error accessing camera:', err)
-      
-      if (cameraFacing === 'environment') {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
-            audio: false
-          })
-          
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream
-            videoRef.current.onloadedmetadata = () => {
-              videoRef.current?.play()
-              setCameraActive(true)
-            }
-            streamRef.current = stream
-            setCameraError(null)
-            setCameraFacing('user')
-            return
-          }
-        } catch (e) {
-          console.error('Front camera also failed:', e)
-        }
+
+      // Friendly error messages
+      let msg = 'Unable to access camera.'
+      if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') {
+        msg = 'Camera permission was denied. Please allow camera access in your browser settings and reload the page.'
+      } else if (err?.name === 'NotFoundError' || err?.name === 'DevicesNotFoundError') {
+        msg = 'No camera was found on this device.'
+      } else if (err?.name === 'NotReadableError' || err?.name === 'TrackStartError') {
+        msg = 'Camera is being used by another app. Close other apps and try again.'
+      } else if (err?.name === 'OverconstrainedError') {
+        msg = 'Camera does not support the requested settings.'
+      } else if (err?.message) {
+        msg = err.message
       }
 
-      setCameraError('Unable to access camera. Please allow camera permissions or upload an image.')
+      setCameraError(msg)
+      setCameraActive(false)
     }
   }
 
@@ -602,7 +657,6 @@ export default function UserDashboard() {
       return
     }
 
-    // Enforce "hold until scheduled" for the selected material
     const today = new Date().toLocaleDateString('en-US', { weekday: 'long' })
     const material = materials.find(m => m.name === formData.wasteType)
     if (material?.hold_until_scheduled && material.schedule_day !== today) {
@@ -985,7 +1039,14 @@ export default function UserDashboard() {
               </div>
             ) : cameraActive ? (
               <div className="user-scanner-camera">
-                <video ref={videoRef} className="user-scanner-video" playsInline autoPlay muted />
+                <video
+                  ref={videoRef}
+                  className="user-scanner-video"
+                  playsInline
+                  autoPlay
+                  muted
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
                 <canvas ref={canvasRef} className="hidden" />
                 <div className="user-scanner-camera-controls">
                   <button onClick={captureImage} className="user-scanner-capture-btn">
